@@ -23,7 +23,7 @@ def on_message(client, userdata, msg):
     # search pseudobind table in database
     # Connect to mysql on local host
     try:
-      cnx = mysql.connector.connect(user=creds["mysql"]["user"],password=creds["mysql"]["password"],
+      cnx = mysql.connector.connect(user=creds["mysql"][0]["user"],password=creds["mysql"][0]["password"],
                                     database='mosquitto_fleet')
     except mysql.connector.Error as err:
       if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
@@ -69,7 +69,8 @@ with open('credentials', 'r') as file:
   jcreds = file.read().replace('\n','')
 creds = json.loads(jcreds)
 print ("mqttuser = ["+creds["mqtt"]["user"]+"], password = ["+creds["mqtt"]["password"]+"]")
-print ("mysqluser = ["+creds["mysql"]["user"]+"], password = ["+creds["mysql"]["password"]+"]")
+print ("mysqluser1 = ["+creds["mysql"][0]["user"]+"], password = ["+creds["mysql"][0]["password"]+"]")
+print ("mysqluser2 = ["+creds["mysql"][1]["user"]+"], password = ["+creds["mysql"][1]["password"]+"]")
 client = mqtt.Client("fleet-binder")
 client.on_connect = on_connect
 client.on_disconnect = on_disconnect
