@@ -2,23 +2,28 @@
 import datetime
 import paho.mqtt.client as mqtt
 import mysql.connector
+import json
 from mysql.connector import errorcode
 
 
 # The callback for when the client receives a CONNACK response from the server.
-def on_connect(client, userdata, rc):
-    #print("Connected with result code "+str(rc))
+def on_connect(client, userdata, flags, rc):
+    print("Connection result: "+connack_string(rc))
     # Subscribing in on_connect() means that if we lose the connection and
     # reconnect then subscriptions will be renewed.
     # client.subscribe("sensors/#")
     client.subscribe("bind/request")
+
+def on_disconnect(client, userdata, rc):
+    if rc != 0:
+        print("Unexpected disconnection:"+rc)
 
 # The callback for when a PUBLISH message is received from the server.
 def on_message(client, userdata, msg):
     # search pseudobind table in database
     # Connect to mysql on local host
     try:
-      cnx = mysql.connector.connect(user='pseudobind',password='mqtt~2015',
+      cnx = mysql.connector.connect(user=creds["mysql"]["user"],password=creds["mysql"]["password"],
                                     database='mosquitto_fleet')
     except mysql.connector.Error as err:
       if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
@@ -59,11 +64,18 @@ def on_message(client, userdata, msg):
     #print("pub: bind/"+search_cid+" "+str(found_devid))
     client.publish("bind/"+search_cid, str(found_devid) )
 
-client = mqtt.Client()
+## Get credentials from json formatted file 'credentials'
+with open('credentials', 'r') as file:
+  jcreds = file.read().replace('\n','')
+creds = json.loads(jcreds)
+print ("mqttuser = ["+creds["mqtt"]["user"]+"], password = ["+creds["mqtt"]["password"]+"]")
+print ("mysqluser = ["+creds["mysql"]["user"]+"], password = ["+creds["mysql"]["password"]+"]")
+client = mqtt.Client("fleet-binder")
 client.on_connect = on_connect
+client.on_disconnect = on_disconnect
 client.on_message = on_message
-client.username_pw_set("ESP8266","I am your father")
-client.connect("localhost", 1883, 60)
+client.username_pw_set(creds["mqtt"]["user"],creds["mqtt"]["password"])
+client.connect("192.168.42.1",1883,60)
 
 # Blocking call that processes network traffic, dispatches callbacks and
 # handles reconnecting.
