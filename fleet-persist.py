@@ -2,6 +2,7 @@
 import datetime
 import paho.mqtt.client as mqtt
 import mysql.connector
+import json
 from mysql.connector import errorcode
 
 
@@ -24,7 +25,7 @@ def on_message_set(mosq, obj, msg):
     # persist/set/#
     print("set: "+msg.topic+" "+str(msg.qos)+" '"+str(msg.payload)+"'")
     try:
-      cnx = mysql.connector.connect(user='persistent',password='mqtt~2015',
+      cnx = mysql.connector.connect(user=creds["mysql"]["user"],password=creds["mysql"]["password"],
                                     database='mosquitto_fleet')
     except mysql.connector.Error as err:
       if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
@@ -81,7 +82,7 @@ def on_message_fetch(mosq, obj, msg):
     # search vars table in database
     # Connect to mysql on local host
     try:
-      cnx = mysql.connector.connect(user='persistent',password='mqtt~2015',
+      cnx = mysql.connector.connect(user=creds["mysql"]["user"],password=creds["mysql"]["password"],
                                     database='mosquitto_fleet')
     except mysql.connector.Error as err:
       if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
@@ -115,14 +116,21 @@ def on_message_fetch(mosq, obj, msg):
 # The callback for when a(n unexpected) PUBLISH message is received from the server.
 def on_message(client, userdata, msg):
     print("BYTES: "+msg.topic+" "+str(msg.qos)+" "+str(msg.payload))
-    
+
+## Get credentials from json formatted file 'credentials'
+with open('credentials', 'r') as file:
+  jcreds = file.read().replace('\n','')
+creds = json.loads(jcreds)
+print ("mqttuser = ["+creds["mqtt"]["user"]+"], password = ["+creds["mqtt"]["password"]+"]")
+print ("mysqluser = ["+creds["mysql"]["user"]+"], password = ["+creds["mysql"]["password"]+"]")
+
 client = mqtt.Client()
 client.on_connect = on_connect
 # Add message callbacks that will only trigger on a specific subscription match.
 client.message_callback_add("persist/set/#", on_message_set)
 client.message_callback_add("persist/fetch", on_message_fetch)
 client.on_message = on_message
-client.username_pw_set("ESP8266","I am your father")
+client.username_pw_set(creds["mqtt"]["user"],creds["mqtt"]["password"])
 client.connect("localhost", 1883, 60)
 
 # Blocking call that processes network traffic, dispatches callbacks and

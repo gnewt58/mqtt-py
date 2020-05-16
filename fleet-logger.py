@@ -2,6 +2,7 @@
 import datetime
 import paho.mqtt.client as mqtt
 import mysql.connector
+import json
 from mysql.connector import errorcode
 
 
@@ -17,7 +18,7 @@ def on_message(client, userdata, msg):
     # search pseudobind table in database
     # Connect to mysql on local host
     try:
-      cnx = mysql.connector.connect(user='pseudobind',password='mqtt~2015',
+      cnx = mysql.connector.connect(user=creds["mysql"]["user"],password=creds["mysql"]["password"],
                                     database='mosquitto_fleet')
     except mysql.connector.Error as err:
       if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
@@ -70,10 +71,16 @@ def on_message(client, userdata, msg):
     cnx.close()
 
 
+## Get credentials from json formatted file 'credentials'
+with open('credentials', 'r') as file:
+  jcreds = file.read().replace('\n','')
+creds = json.loads(jcreds)
+print ("mqttuser = ["+creds["mqtt"]["user"]+"], password = ["+creds["mqtt"]["password"]+"]")
+print ("mysqluser = ["+creds["mysql"]["user"]+"], password = ["+creds["mysql"]["password"]+"]")
 client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
-client.username_pw_set("ESP8266","I am your father")
+client.username_pw_set(creds["mqtt"]["user"],creds["mqtt"]["password"])
 client.connect("localhost", 1883, 60)
 
 # Blocking call that processes network traffic, dispatches callbacks and
