@@ -47,6 +47,8 @@ def on_message(client, userdata, msg):
   if row is not None:
     #row = rows[0]
     found_devid = row[1]
+    if options.debug:
+      print "found_devid: "+found_devid
     #print ("I found device ID [" + found_devid + "]")
     update_stmt = "UPDATE pseudobind SET last_update = '"+ str(datetime.datetime.now()) +"', active = 1 WHERE cid = '" + search_cid + "'"
     if options.debug:
