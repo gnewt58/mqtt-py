@@ -48,9 +48,10 @@ def on_message_set(mosq, obj, msg):
   last_slash = stopic.rindex("/");
   search_devid = str(msg.topic)[last_slash+1:]
   spayload = str(msg.payload)
-  if ":" in spayload:
-    colon = spayload.index(":")
-  elif "=" in spayload:
+  # if ":" in spayload:
+    # colon = spayload.index(":") 
+    # elif
+  if "=" in spayload:
     colon = spayload.index("=")
   else:
     print("Need a separator of either : or =")
