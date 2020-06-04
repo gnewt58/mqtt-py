@@ -2,4 +2,5 @@ killall fleet*
 nohup /home/greg/mqtt-py/fleet-binder.py &
 nohup /home/greg/mqtt-py/fleet-persist.py &
 nohup /home/greg/mqtt-py/fleet-logger.py &
+nohup /home/greg/mqtt-py/fleet-status.py &
 ps -ef | grep fleet

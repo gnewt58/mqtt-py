@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import datetime
 import optparse
+import os
 import json
 import paho.mqtt.client as mqtt
 import mysql.connector
@@ -78,11 +79,15 @@ parser.add_option('-d', '--debug',
 options, remainder = parser.parse_args()
 
 ## Get credentials from json formatted file 'credentials'
-with open('credentials', 'r') as file:
+thispath = os.path.realpath(__file__).rsplit("/",1)[0]
+with open(thispath+'/credentials', 'r') as file:
   jcreds = file.read().replace('\n','')
+  file.close()
+  
 creds = json.loads(jcreds)
-print ("mqttuser = ["+creds["mqtt"]["user"]+"], password = ["+creds["mqtt"]["password"]+"]")
-print ("mysqluser = ["+creds["mysql"][0]["user"]+"], password = ["+creds["mysql"][0]["password"]+"]")
+if options.debug:
+  print ("mqttuser = ["+creds["mqtt"]["user"]+"], password = ["+creds["mqtt"]["password"]+"]")
+  print ("mysqluser = ["+creds["mysql"][0]["user"]+"], password = ["+creds["mysql"][0]["password"]+"]")
 client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message

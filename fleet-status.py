@@ -1,8 +1,8 @@
 #!/usr/bin/python
 import datetime
 import optparse
-import os
 import json
+import os
 import paho.mqtt.client as mqtt
 import mysql.connector
 from mysql.connector import errorcode
@@ -15,8 +15,7 @@ def on_connect(client, userdata, flags, rc):
     print "this is on_connect. Connection result: "+mqtt.connack_string(rc)
   # Subscribing in on_connect() means that if we lose the connection and
   # reconnect then subscriptions will be renewed.
-  client.subscribe("persist/fetch")
-  client.subscribe("persist/set/#")
+  client.subscribe("status/#")
 
 # msg
 # an instance of MQTTMessage. This is a class with members topic, payload, qos, retain.    
@@ -25,11 +24,11 @@ def on_connect(client, userdata, flags, rc):
 ##
 #  persist/set/<devid>/<var> <value>
 ##
-def on_message_set(mosq, obj, msg):
+def on_message_status(mosq, obj, msg):
   # This callback will only be called for messages with topics that match
   # persist/set/#
   if options.debug:
-    print "this is on_message_set. t: "+str(msg.topic)+" q: "+str(msg.qos)+" p: "+str(msg.payload)
+    print "this is on_message_status. t: "+str(msg.topic)+" q: "+str(msg.qos)+" p: "+str(msg.payload)
     
   try:
     cnx = mysql.connector.connect(user=creds["mysql"][1]["user"],password=creds["mysql"][1]["password"],
@@ -50,20 +49,20 @@ def on_message_set(mosq, obj, msg):
   search_devid = str(msg.topic)[last_slash+1:]
   spayload = str(msg.payload)
   # if ":" in spayload:
-    # colon = spayload.index(":") 
+    # equals = spayload.index(":") 
     # elif
   if "=" in spayload:
-    colon = spayload.index("=")
+    equals = spayload.index("=")
   else:
-    print("Need a separator of either : or =")
+    print("Need a separator =")
     exit(2)
-  varname = spayload[0:colon]
+  varname = spayload[0:equals]
   varname = varname.replace('-','[',1)
   varname = varname.replace('-',']',1)
-  varvalue = spayload[colon+1:]
+  varvalue = spayload[equals+1:]
   if options.debug:
     print "Varname = '"+varname+"', varvalue = '"+varvalue+"'"
-  query = ("SELECT varname, varvalue FROM vars WHERE devid = '" + search_devid + "' AND varname = '" + varname + "'")
+  query = ("SELECT id FROM status WHERE devid = '" + search_devid + "'")
   if options.debug:
     print "executing query '"+query+"'"
   cursor.execute(query)
@@ -71,12 +70,14 @@ def on_message_set(mosq, obj, msg):
   # loop over found variables
   row = cursor.fetchone()
   if row is not None:
+    row_id = row[0];
+    if options.debug:
+      print "found id = '"+str(row_id)+"'"
     cursor.close()
     cursor = cnx.cursor()
-    query = ("UPDATE vars SET varvalue = '" + varvalue + "' WHERE devid = '" + search_devid + "' AND varname = '" + varname +"'")
+    query = ("UPDATE `status` SET `" + varname + "` = '" + varvalue + "' WHERE id = " + str(row_id))
   else:
-    query = ("INSERT INTO `vars` (`id`, `devid`, `varname`, `varvalue`) VALUES (NULL, '"+search_devid+"', '"+varname+"', '"+varvalue+"')")
-  
+    query = ("INSERT INTO `status` (`devid`, `"+varname+"`) VALUES ('"+search_devid+"', '"+varvalue+"')")
   if options.debug:
     print "Executing query '"+query+"'"
   cursor.execute(query)
@@ -150,8 +151,8 @@ thispath = os.path.realpath(__file__).rsplit("/",1)[0]
 with open(thispath+'/credentials', 'r') as file:
   jcreds = file.read().replace('\n','')
   file.close()
-creds = json.loads(jcreds)
   
+creds = json.loads(jcreds)
 if (options.debug):
   print ("mqttuser = ["+creds["mqtt"]["user"]+"], password = ["+creds["mqtt"]["password"]+"]")
   print ("mysqluser2 = ["+creds["mysql"][1]["user"]+"], password = ["+creds["mysql"][1]["password"]+"]")
@@ -159,8 +160,7 @@ if (options.debug):
 client = mqtt.Client()
 client.on_connect = on_connect
 # Add message callbacks that will only trigger on a specific subscription match.
-client.message_callback_add("persist/set/#", on_message_set)
-client.message_callback_add("persist/fetch", on_message_fetch)
+client.message_callback_add("status/#", on_message_status)
 client.on_message = on_message
 client.username_pw_set(creds["mqtt"]["user"],creds["mqtt"]["password"])
 client.connect("localhost", 1883, 60)
