@@ -22,13 +22,14 @@ def on_disconnect(client, userdata, rc):
 
 # The callback for when a PUBLISH message is received from the server.
 def on_message(client, userdata, msg):
+  search_cid = msg.payload.decode()
   if options.debug:
-    print "this is on_message. t: "+str(msg.topic)+" p: "+str(msg.payload)
+    print "this is on_message. t: "+str(msg.topic)+" p: "+search_cid
   # search pseudobind table in database
   # Connect to mysql on local host
   try:
-    cnx = mysql.connector.connect(user=creds["mysql"][0]["user"],password=creds["mysql"][0]["password"],
-                                    database='mosquitto_fleet')
+    cnx = mysql.connector.connect(host='localhost',user=creds["mysql"][0]["user"],password=creds["mysql"][0]["password"],
+                    database='IOT_Devices', charset="utf8mb4", collation="utf8mb4_general_ci", use_unicode=True)
   except mysql.connector.Error as err:
     if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
       print("Something is wrong with your user name or password")
@@ -36,30 +37,51 @@ def on_message(client, userdata, msg):
       print("Database does not exist")
     else:
       print(err)
-
+  # ~ finally:
+    # ~ cursor.close()
+    # ~ cnx.close()
+      
+  if options.debug:
+    print("cnx.charset = ["+cnx.charset+"]")
+    
   cursor = cnx.cursor()
-
-  search_cid = str(msg.payload)
-  query = ("SELECT * FROM pseudobind WHERE cid = '" + search_cid + "'")
-  cursor.execute(query)
-
+  query = u"""SELECT * FROM devices WHERE cid = %s"""
+# ~ qry = u"""SELECT * FROM devices WHERE cid = %s"""
+  if options.debug:
+    print("About to construct parameter from "+search_cid)
+  # ~ prm = encode(search_cid,'utf8')
+  prm = [search_cid]
+  # ~ prm = [u""+search_cid]
+  if options.debug:
+    print("cursor.execute("+query+", "+prm[0]+")")
+  cursor.execute(query,prm)  
+  # ~ cursor.execute('SELECT * FROM devices')
+  # ~ if options.debug:
+    # ~ print("About to fetchone")
     # We expect only a single result as this is a unique field (cid)
   row = cursor.fetchone()
+  # ~ if options.debug:
+    # ~ print "fetched, row = "+row
+    
   if row is not None:
-    #row = rows[0]
-    found_devid = row[1]
+    if options.debug:
+      print ("row is not None")
+      print ("row[]: ", row) 
+    found_devid = row[2]
     if options.debug:
       print "found_devid: "+found_devid
     #print ("I found device ID [" + found_devid + "]")
-    update_stmt = "UPDATE pseudobind SET last_update = '"+ str(datetime.datetime.now()) +"', active = 1 WHERE cid = '" + search_cid + "'"
+    update_stmt = "UPDATE devices SET last_seen = '"+ str(datetime.datetime.now()) +"' WHERE cid = '" + search_cid + "'"
     if options.debug:
       print (update_stmt)
     cursor.execute(update_stmt)
     cnx.commit()
   else:
+    if options.debug:
+      print ("row is None")
     #cursor.fetchall() # clear the cursor for the insert statement
     found_devid = "disco-"+search_cid
-    insert_stmt = "INSERT INTO pseudobind (cid, devid, description, last_update, active) VALUES ('" + search_cid + "','" + found_devid + "','<discovered device>','" + str(datetime.datetime.now()) + "', '1')"
+    insert_stmt = "INSERT INTO devices (cid, name, last_seen) VALUES ('" + search_cid + "','" + found_devid + "','" + str(datetime.datetime.now()) + "')"
     if options.debug:
       print (insert_stmt)
     #data = (search_cid, found_devid, "<discovered device>", right_now )
@@ -69,7 +91,8 @@ def on_message(client, userdata, msg):
   cursor.close()
   cnx.close()
 
-  #print("pub: bind/"+search_cid+" "+str(found_devid))
+  if options.debug:
+    print("pub: bind/"+search_cid+" "+str(found_devid))
   client.publish("bind/"+search_cid, str(found_devid) )
 
 ## Get command line option(s)
