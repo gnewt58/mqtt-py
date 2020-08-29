@@ -27,12 +27,14 @@ def on_connect(client, userdata, flags, rc):
 def on_message_status(mosq, obj, msg):
   # This callback will only be called for messages with topics that match
   # persist/set/#
+  spayload = msg.payload.decode()
+  stopic = msg.topic.decode()
   if options.debug:
-    print "this is on_message_status. t: "+str(msg.topic)+" q: "+str(msg.qos)+" p: "+str(msg.payload)
+    print "this is on_message_status. t: "+stopic+" q: "+str(msg.qos)+" p: "+spayload
     
   try:
     cnx = mysql.connector.connect(user=creds["mysql"][1]["user"],password=creds["mysql"][1]["password"],
-                                  database='mosquitto_fleet')
+                  database='IOT_Devices', charset="utf8mb4", collation="utf8mb4_general_ci", use_unicode=True)
   except mysql.connector.Error as err:
     if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
       print("Something is wrong with your user name or password")
@@ -44,10 +46,10 @@ def on_message_status(mosq, obj, msg):
   cursor = cnx.cursor()
 
   # First determine which subscription has kicked in ;)
-  stopic = str(msg.topic)
+  # ~ stopic = str(msg.topic)
   last_slash = stopic.rindex("/");
-  search_devid = str(msg.topic)[last_slash+1:]
-  spayload = str(msg.payload)
+  search_devid = stopic[last_slash+1:]
+  # ~ spayload = str(msg.payload)
   # if ":" in spayload:
     # equals = spayload.index(":") 
     # elif
@@ -62,10 +64,11 @@ def on_message_status(mosq, obj, msg):
   varvalue = spayload[equals+1:]
   if options.debug:
     print "Varname = '"+varname+"', varvalue = '"+varvalue+"'"
-  query = ("SELECT id FROM status WHERE devid = '" + search_devid + "'")
+  query = ("SELECT id FROM devices WHERE name = %s")
+  params = [search_devid]
   if options.debug:
-    print "executing query '"+query+"'"
-  cursor.execute(query)
+    print "executing query '"+query+"'",params
+  cursor.execute(query,params)
 
   # loop over found variables
   row = cursor.fetchone()
@@ -75,9 +78,9 @@ def on_message_status(mosq, obj, msg):
       print "found id = '"+str(row_id)+"'"
     cursor.close()
     cursor = cnx.cursor()
-    query = ("UPDATE `status` SET `" + varname + "` = '" + varvalue + "' WHERE id = " + str(row_id))
+    query = ("UPDATE `devices` SET `" + varname + "` = '" + varvalue + "' WHERE id = " + str(row_id))
   else:
-    query = ("INSERT INTO `status` (`devid`, `"+varname+"`) VALUES ('"+search_devid+"', '"+varvalue+"')")
+    query = ("INSERT INTO `devices` (`name`, `"+varname+"`) VALUES ('"+search_devid+"', '"+varvalue+"')")
   if options.debug:
     print "Executing query '"+query+"'"
   cursor.execute(query)

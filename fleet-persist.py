@@ -47,7 +47,7 @@ def on_message_set(mosq, obj, msg):
   # First determine which subscription has kicked in ;)
   stopic = str(msg.topic)
   last_slash = stopic.rindex("/");
-  search_devid = str(msg.topic)[last_slash+1:]
+  search_devname = str(msg.topic)[last_slash+1:]
   spayload = str(msg.payload)
   # if ":" in spayload:
     # colon = spayload.index(":") 
@@ -63,7 +63,7 @@ def on_message_set(mosq, obj, msg):
   varvalue = spayload[colon+1:]
   if options.debug:
     print "Varname = '"+varname+"', varvalue = '"+varvalue+"'"
-  query = ("SELECT varname, varvalue FROM vars WHERE devid = '" + search_devid + "' AND varname = '" + varname + "'")
+  query = ("SELECT varname, varvalue FROM vars WHERE devid = '" + search_devname + "' AND varname = '" + varname + "'")
   if options.debug:
     print "executing query '"+query+"'"
   cursor.execute(query)
@@ -73,9 +73,9 @@ def on_message_set(mosq, obj, msg):
   if row is not None:
     cursor.close()
     cursor = cnx.cursor()
-    query = ("UPDATE vars SET varvalue = '" + varvalue + "' WHERE devid = '" + search_devid + "' AND varname = '" + varname +"'")
+    query = ("UPDATE vars SET varvalue = '" + varvalue + "' WHERE devid = '" + search_devname + "' AND varname = '" + varname +"'")
   else:
-    query = ("INSERT INTO `vars` (`id`, `devid`, `varname`, `varvalue`) VALUES (NULL, '"+search_devid+"', '"+varname+"', '"+varvalue+"')")
+    query = ("INSERT INTO `vars` (`id`, `devid`, `varname`, `varvalue`) VALUES (NULL, '"+search_devname+"', '"+varname+"', '"+varvalue+"')")
   
   if options.debug:
     print "Executing query '"+query+"'"
@@ -91,14 +91,15 @@ def on_message_set(mosq, obj, msg):
 def on_message_fetch(mosq, obj, msg):
   # This callback will only be called for messages with topics that match
   # persist/fetch
+  search_devname = msg.payload.decode()
   if options.debug:
-    print "this is on_message_fetch. t: "+str(msg.topic)+" p: "+str(msg.payload)+" qos: "+str(msg.qos)
+    print "this is on_message_fetch. t: "+str(msg.topic)+" p: "+search_devname+" qos: "+str(msg.qos)
   
   # search vars table in database
   # Connect to mysql on local host
   try:
     cnx = mysql.connector.connect(user=creds["mysql"][1]["user"],password=creds["mysql"][1]["password"],
-                                  database='mosquitto_fleet')
+                  database='IOT_Devices', charset="utf8mb4", collation="utf8mb4_general_ci", use_unicode=True)
   except mysql.connector.Error as err:
     if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
       print("Something is wrong with your user name or password")
@@ -110,19 +111,83 @@ def on_message_fetch(mosq, obj, msg):
   cursor = cnx.cursor()
 
   # First determine which subscription has kicked in ;)
-  search_devid = str(msg.payload)
-  query = ("SELECT varname, varvalue FROM vars WHERE devid = '" + search_devid + "'")
-  cursor.execute(query)
+  # ~ query = ("SELECT varname, varvalue FROM vars WHERE devid = '" + search_devname + "'")
+  query = ("SELECT variables.varname, variables.varvalue, devices.id "+
+          "FROM variables "+
+          "INNER JOIN devices ON variables.device = devices.id "+
+          "WHERE devices.name = %s")
+  prm = [search_devname]
+  cursor.execute(query,prm)
   #print( "executed query" )
 
   # loop over found variables
   row = cursor.fetchone()
   while row is not None:
+    device_id = row[2]
     #row = rows[0]
     if options.debug:
-      print( "pub: persist/"+search_devid+"/set "+row[0]+":"+row[1] )
-    client.publish( "persist/"+search_devid+"/set", row[0]+":"+row[1] )
+      print( "pub: persist/"+search_devname+"/set "+row[0]+":"+row[1] )
+    client.publish( "persist/"+search_devname+"/set", row[0]+":"+row[1] )
     row = cursor.fetchone()
+
+# ~ valvecount int
+# ~ valvepins[0-9] int,int
+# ~ valvestate[0-9] int
+# ~ sensorcount int
+# ~ sensorpins[0-9] string(int[[,int]...])
+# ~ sensortype[0-9] int
+  ############################################
+  # Return sensor data as variables
+  ############################################
+  qry = ("SELECT sensors.id,sensor_types.deprecated_id FROM sensors "+
+          "INNER JOIN sensor_types ON sensor_types.id = sensors.type "+
+          "WHERE sensors.attached_to = %s")
+  prm = [device_id]
+  cursor.execute( qry, prm )
+  sensors = cursor.fetchall()
+  if options.debug:
+    print("Total rows are:  ", len(sensors))
+    print("Printing each row")
+  sensor_index = -1
+  sensor_dtype = []
+  pinstring = []
+  for row in sensors:
+    sensor_id = row[0]
+    sensor_index += 1
+    sensor_dtype.append(row[1])
+    pinstring.append("")
+    if options.debug:
+      print("sensors.id: ", sensor_id,"sensor_dtype: ",row[1])
+    qry = ("SELECT device_characteristics.pin_name,device_characteristics.pin_gpio "+
+            "FROM sensor_pins "+
+            "INNER JOIN device_characteristics "+
+            "ON device_characteristics.id = sensor_pins.device_characteristics_id "+
+            "WHERE sensor_pins.sensor = %s")
+    prm = [sensor_id]
+    cursor.execute( qry, prm )
+    pinrows = cursor.fetchall()
+    if options.debug:
+      print("Total sensor pins are:  ", len(pinrows))
+    for pin in pinrows:
+      pinstring[sensor_index] = pinstring[sensor_index] + "," + str(pin[1])
+      if options.debug:
+        print("Pin_name: ", pin[0], " GPIO: ", pin[1])
+    pinstring[sensor_index] = pinstring[sensor_index][1:]
+    if options.debug:
+      print("pinstring[",sensor_index,"] = `",pinstring[sensor_index],"`")
+      
+       
+    if options.debug:
+      print( "pub: persist/"+search_devname+"/set","sensorpins["+str(sensor_index)+"]:"+pinstring[sensor_index] )
+    client.publish( "persist/"+search_devname+"/set","sensorpins["+str(sensor_index)+"]:"+pinstring[sensor_index] )
+    if options.debug:
+      print( "pub: persist/"+search_devname+"/set","sensortype["+str(sensor_index)+"]:"+sensor_dtype[sensor_index] )
+    client.publish( "persist/"+search_devname+"/set","sensortype["+str(sensor_index)+"]:"+sensor_dtype[sensor_index] )
+    
+  if options.debug:
+    print( "pub: persist/"+search_devname+"/set", "sensorcount:"+str(sensor_index+1) )
+  client.publish( "persist/"+search_devname+"/set", "sensorcount:"+str(sensor_index+1) )
+  # ~ client.publish( "persist/"+search_devname+"/set", row[0]+":"+row[1] )
 
   cursor.close()
   cnx.close()
