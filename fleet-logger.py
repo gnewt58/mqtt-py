@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import datetime
 import optparse
+import argparse
 import os
 import json
 import paho.mqtt.client as mqtt
@@ -23,8 +24,8 @@ def on_message(client, userdata, msg):
   # search pseudobind table in database
   # Connect to mysql on local host
   try:
-    cnx = mysql.connector.connect(user=creds["mysql"][0]["user"],password=creds["mysql"][0]["password"],
-                                  database='mosquitto_fleet')
+    cnx = mysql.connector.connect(user=creds["mysql"][1]["user"],password=creds["mysql"][1]["password"],
+                  database='IOT_Devices', charset="utf8mb4", collation="utf8mb4_general_ci", use_unicode=True)
   except mysql.connector.Error as err:
     if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
       print("Something is wrong with your user name or password")
@@ -37,29 +38,70 @@ def on_message(client, userdata, msg):
       
   if options.debug:
     print(msg.topic+" -> "+msg.payload)
-  splittopic = [x.strip() for x in msg.topic.split("/")]
-  insert_stmt = "INSERT INTO datalogger (devid,sensorid,value,units) VALUES ('"+splittopic[1]+"','"+splittopic[2]+"','"+msg.payload+"','"+splittopic[3]+"')"
-  #"INSERT Ime.datetime.now())+"','"+splittopic[0]+"','"+splittopic[1]+"','"+msg.payload+"','"+splittopic[2]+"')"
+  # ~ splittopic = [x.strip() for x in msg.topic.split("/")]
+  (dummy,devname,sensorid,units) = (x.strip() for x in msg.topic.split("/"))
   if options.debug:
-    print(insert_stmt)
-  cursor.execute(insert_stmt)
+    print ("devname: ",devname," sensorid: ",sensorid," units: ",units)
+  # ~ id 	device_id 	time_stamp 	sensorid 	units 	value 
+  qry = "SELECT id FROM devices WHERE name = %s"
+  prm = [devname]
+  if options.debug:
+    print (qry,prm)
+  cursor.execute( qry, prm)
+  row = cursor.fetchone()
+  if row is not None:
+    if options.debug:
+      print ("devid: ",row[0])
+    devid = row[0]
+    
+  count_stmt = "SELECT COUNT(id) FROM sensorlog"
+  cursor.execute(count_stmt)  
+  row = cursor.fetchone()
+  if row is not None:
+    if options.debug:
+      print ("log_count: ",row[0])
+    log_count = row[0]
+  if log_count > options.maxrecords:
+    # Delete 1000 oldest records
+    if options.debug:
+      print ("Deleting 1000 records") 
+    del_stmt = "DELETE FROM sensorlog ORDER BY id LIMIT 1000"
+    cursor.execute(del_stmt)
+    cnx.commit()
+
+  # ~ Log the sensor data
+  insert_stmt = "INSERT INTO sensorlog (device_id,sensorname,value,units) VALUES (%s,%s,%s,%s)"
+  insert_vals = (devid, sensorid, msg.payload, units)
+  
+  if options.debug:
+    print(insert_stmt, insert_vals)
+  cursor.execute( insert_stmt, insert_vals )
   cnx.commit()
 
   ### Insert / update latest reading table
-  search_stmt = "SELECT * FROM latest WHERE (devid,sensorid) = ('"+splittopic[1]+"','"+splittopic[2]+"')"
-  cursor.execute(search_stmt)
+  search_stmt = "SELECT * FROM sensorlatest WHERE (device_id,sensorname) = (%s,%s)"
+  search_parm = (devid,sensorid)
+  if options.debug:
+    print(search_stmt, search_parm)
+  cursor.execute(search_stmt, search_parm)
 
   # We expect only a single result as this is a unique field (cid)
   row = cursor.fetchone()
   if row is None:
-    sql_stmt = "INSERT INTO latest (devid,sensorid,value,units) VALUES ('"+splittopic[1]+"','"+splittopic[2]+"','"+msg.payload+"','"+splittopic[3]+"')"
+    insert_stmt = "INSERT INTO sensorlatest (device_id,sensorname,value,units) VALUES (%s,%s,%s,%s)"
+    insert_vals = (devid, sensorid, msg.payload, units)
+    if options.debug:
+      print(insert_stmt, insert_vals)
+    cursor.execute( insert_stmt, insert_vals )
+    cnx.commit()
 
   else:
-    # cursor.fetchall()
-    sql_stmt = "UPDATE latest SET value = '"+ msg.payload +"' WHERE (devid,sensorid) = ('"+splittopic[1]+"','"+splittopic[2]+"')"
-  
-  cursor.execute(sql_stmt)
-  cnx.commit()
+    sql_stmt = "UPDATE sensorlatest SET value = %s WHERE (devid,sensorname) = (%s,%s)"
+    sql_vals = (msg.payload, devid, sensorid)
+    if options.debug:
+      print(sql_stmt, sql_vals)
+    cursor.execute(sql_stmt,sql_vals)
+    cnx.commit()
   
   cursor.close()
   cnx.close()
@@ -69,14 +111,20 @@ def on_message(client, userdata, msg):
 # MAIN
 #-----------------------------------------------------------------------------------
 ## Get command line option(s)
-## currently only looking for '-d/--debug' for debug
-parser = optparse.OptionParser()
-parser.add_option('-d', '--debug',
+parser = argparse.ArgumentParser(description='Log incoming MQTT sensor readings to MySQL database.')
+parser.add_argument('-d','--debug',
                   dest="debug",
                   default=False,
                   action="store_true",
                   )
-options, remainder = parser.parse_args()
+parser.add_argument('-m','--maxrecords',
+                  dest="maxrecords",
+                  nargs=1,
+                  default=10000000,
+                  type=int,
+                  # ~ action="store_const",
+                  )
+(options) = parser.parse_args()
 
 ## Get credentials from json formatted file 'credentials'
 thispath = os.path.realpath(__file__).rsplit("/",1)[0]

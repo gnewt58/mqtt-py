@@ -92,6 +92,7 @@ def on_message_fetch(mosq, obj, msg):
   # This callback will only be called for messages with topics that match
   # persist/fetch
   search_devname = msg.payload.decode()
+  device_id = "" # Set scope to be whole function
   if options.debug:
     print "this is on_message_fetch. t: "+str(msg.topic)+" p: "+search_devname+" qos: "+str(msg.qos)
   
